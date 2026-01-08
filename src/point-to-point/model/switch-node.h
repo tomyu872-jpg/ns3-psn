@@ -8,12 +8,14 @@
 
 #include "qbb-net-device.h"
 #include "switch-mmu.h"
-
+const int mp_count=4;
+const int PACKET_SIZE=8192;
 namespace ns3 {
 
 class Packet;
 
 class SwitchNode : public Node {
+    inline static int counter = 0;
     static const unsigned qCnt = 8;    // Number of queues/priorities used
     static const unsigned pCnt = 128;  // port 0 is not used so + 1	// Number of ports used
     uint32_t m_ecmpSeed;

@@ -1,0 +1,331 @@
+#include <ns3/assert.h>
+#include <ns3/rdma-client-helper.h>
+#include <ns3/rdma-client.h>
+#include <ns3/rdma-driver.h>
+#include <ns3/rdma.h>
+#include <ns3/sim-setting.h>
+#include <ns3/switch-node.h>
+#include "ns3/rdma-queue-pair.h"
+#include <time.h>
+
+#include <fstream>
+#include <iostream>
+#include <unordered_map>
+
+#include "ns3/applications-module.h"
+#include "ns3/broadcom-node.h"
+#include "ns3/conga-routing.h"
+#include "ns3/conweave-voq.h"
+#include "ns3/core-module.h"
+#include "ns3/error-model.h"
+#include "ns3/global-route-manager.h"
+#include "ns3/internet-module.h"
+#include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/letflow-routing.h"
+#include "ns3/packet.h"
+#include "ns3/point-to-point-helper.h"
+#include "ns3/qbb-helper.h"
+#include "ns3/qbb-net-device.h"
+#include "ns3/rdma-hw.h"
+#include "ns3/settings.h"
+
+using namespace ns3;
+using namespace std;
+
+// NS_LOG_COMPONENT_DEFINE("GENERIC_SIMULATION");
+
+
+uint32_t lb_mode = 0;
+
+// Conga params (based on paper recommendation)
+Time conga_flowletTimeout = MicroSeconds(100);  // 100us
+Time conga_dreTime = MicroSeconds(50);
+Time conga_agingTime = MicroSeconds(500);
+uint32_t conga_quantizeBit = 3;
+double conga_alpha = 0.2;
+
+// Letflow params
+Time letflow_flowletTimeout = MicroSeconds(100);  // 100us
+Time letflow_agingTime = MilliSeconds(2);  // just to clear the unused map entries for simul speed
+
+// Conweave params
+Time conweave_extraReplyDeadline = MicroSeconds(4);       // additional term to reply deadline
+Time conweave_pathPauseTime = MicroSeconds(8);            // time to send packets to congested path
+Time conweave_txExpiryTime = MicroSeconds(1000);          // waiting time for CLEAR
+Time conweave_extraVOQFlushTime = MicroSeconds(32);       // extra for uncertainty
+Time conweave_defaultVOQWaitingTime = MicroSeconds(500);  // default flush timer if no history
+bool conweave_pathAwareRerouting = true;
+
+/*------------------------ simulation variables -----------------------------*/
+uint64_t one_hop_delay = 1000;  // nanoseconds
+uint32_t cc_mode = 1;           // mode for congestion control, 1: DCQCN
+bool enable_qcn = true, enable_pfc = true, use_dynamic_pfc_threshold = true;
+uint32_t packet_payload_size = 1, l2_chunk_size = 0, l2_ack_interval = 1;
+double pause_time = 5;  // PFC pause, microseconds
+double flowgen_start_time = 2.0, flowgen_stop_time = 2.5, simulator_extra_time = 0.1;
+// queue length monitoring time is not used in this simulator
+// uint32_t qlen_dump_interval = 100000000, qlen_mon_interval = 1000;  // ns
+uint64_t qlen_mon_start;               // ns
+uint64_t qlen_mon_end;                 // ns
+uint32_t switch_mon_interval = 10000;  // ns
+uint64_t cnp_mon_start;                // ns
+uint64_t cnp_monitor_bucket = 100000;  // ns
+uint64_t irn_mon_start;                // ns
+uint64_t irn_monitor_bucket = 100000;  // ns
+
+FILE *pfc_file = NULL;
+FILE *fct_output = NULL;
+FILE *flow_input_stream = NULL;
+FILE *cnp_output = NULL;
+FILE *est_error_output = NULL;
+FILE *voq_output = NULL;
+FILE *voq_detail_output = NULL;
+FILE *uplink_output = NULL;
+FILE *conn_output = NULL;
+
+std::string data_rate, link_delay, topology_file, flow_file;
+std::string flow_input_file = "flow.txt";
+std::string fct_output_file = "fct.txt";
+std::string pfc_output_file = "pfc.txt";
+std::string cnp_output_file = "cnp.txt";
+std::string qlen_mon_file = "qlen.txt";
+std::string voq_mon_file = "voq.txt";
+std::string voq_mon_detail_file = "voq_detail.txt";
+std::string uplink_mon_file = "uplink.txt";
+std::string conn_mon_file = "conn.txt";
+std::string est_error_output_file = "est_error.txt";
+
+// CC params
+double alpha_resume_interval = 55, rp_timer = 300, ewma_gain = 1 / 16;
+double rate_decrease_interval = 4;
+uint32_t fast_recovery_times = 1;
+std::string rate_ai, rate_hai, min_rate = "100Mb/s";
+std::string dctcp_rate_ai = "1000Mb/s";
+
+bool clamp_target_rate = false, l2_back_to_zero = false;
+double error_rate_per_link = 0.0;
+uint32_t has_win = 1;
+uint32_t global_t = 1;
+uint32_t mi_thresh = 5;
+bool var_win = false, fast_react = true;
+bool multi_rate = true;
+bool sample_feedback = false;
+double u_target = 0.95;
+uint32_t int_multi = 1;
+bool rate_bound = true;
+unordered_map<uint64_t, uint32_t> rate2kmax, rate2kmin;
+unordered_map<uint64_t, double> rate2pmax;
+unordered_map<uint32_t, Ptr<SwitchNode>> idxNodeToR;  // Id -> Ptr
+
+// config of link-down scenario, ACK priority, and buffer
+uint64_t link_down_time = 0;
+uint32_t link_down_A = 0, link_down_B = 0;
+uint32_t buffer_size = 0;  // 0 to set buffer size automatically
+
+// Added from Here
+double load = 10.0;
+int enable_irn = 1;
+int random_seed = 0;  // change this randomly if you want random expt
+
+uint64_t maxRtt, maxBdp;
+
+// app parameters
+struct Interface {
+    uint32_t idx;
+    bool up;
+    uint64_t delay;
+    uint64_t bw;
+
+    Interface() : idx(0), up(false) {}
+};
+map<Ptr<Node>, map<Ptr<Node>, Interface>> nbr2if;
+// Mapping destination to next hop for each node: <node, <dest, <nexthop0, ...> > >
+map<Ptr<Node>, map<Ptr<Node>, vector<Ptr<Node>>>> nextHop;
+map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairDelay;
+map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairTxDelay;
+map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairBw;
+map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairBdp;
+map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairRtt;
+
+// for uplink/Downlink monitoring at TOR switches (load balance performance)
+std::map<uint32_t, std::vector<uint32_t>> torId2UplinkIf;
+std::map<uint32_t, std::vector<uint32_t>> torId2DownlinkIf;
+
+// input files
+std::ifstream topof, flowf;
+NodeContainer n;                         // node container
+std::vector<Ipv4Address> serverAddress;  // server address
+
+// flow generator
+std::unordered_map<uint32_t, uint32_t> flows_per_host;
+uint32_t flow_id = 0;
+std::unordered_map<uint32_t, uint16_t> portNumber;
+std::unordered_map<uint32_t, uint16_t> dportNumber;
+uint16_t *port_per_host;
+
+// Scheduling input flows from flow.txt
+struct FlowInput {
+    uint32_t src, dst, pg, maxPacketCount, port;
+    double start_time;
+    uint32_t idx;
+};
+FlowInput flow_input = {0};  // global variable
+uint32_t flow_num;
+uint32_t irn_bdp_lookup = 25000;
+
+void cnp_freq_monitoring(FILE *fout, Ptr<RdmaHw> rdmahw) {
+    if (rdmahw->cnp_total > 0) {
+        // flush
+        fprintf(fout, "%lu %u %u %u %u\n", Simulator::Now().GetNanoSeconds(),
+                rdmahw->m_node->GetId(), rdmahw->cnp_by_ecn, rdmahw->cnp_by_ooo, rdmahw->cnp_total);
+        fflush(fout);
+
+        // initialize
+        rdmahw->cnp_by_ecn = 0;
+        rdmahw->cnp_by_ooo = 0;
+        rdmahw->cnp_total = 0;
+    }
+
+    // recursive callback
+    Simulator::Schedule(NanoSeconds(cnp_monitor_bucket), &cnp_freq_monitoring, fout, rdmahw);
+}
+
+void qp_finish(FILE *fout, Ptr<RdmaQueuePair> q) {
+    uint32_t sid = Settings::ip_to_node_id(q->sip), did = Settings::ip_to_node_id(q->dip);
+    uint64_t base_rtt = pairRtt[n.Get(sid)][n.Get(did)];
+    uint64_t b = pairBw[n.Get(sid)][n.Get(did)];
+    uint32_t total_bytes =
+        q->m_size + ((q->m_size - 1) / packet_payload_size + 1) *
+                        (CustomHeader::GetStaticWholeHeaderSize() -
+                         IntHeader::GetStaticSize());  // translate to the minimum bytes required
+                                                       // (with header but no INT)
+    uint64_t standalone_fct = base_rtt + total_bytes * 8000000000lu / b;
+
+    // XXX: remove rxQP from the receiver
+    Ptr<Node> dstNode = n.Get(did);
+    Ptr<RdmaDriver> rdma = dstNode->GetObject<RdmaDriver>();
+    rdma->m_rdma->DeleteRxQp(q->sip.Get(), q->sport, q->dport, q->m_pg);
+
+    // fprintf(fout, "%lu QP complete\n", Simulator::Now().GetTimeStep());
+    fprintf(fout, "%u %u %u %u %lu %lu %lu %lu\n", Settings::ip_to_node_id(q->sip),
+            Settings::ip_to_node_id(q->dip), q->sport, q->dport, q->m_size,
+            q->startTime.GetTimeStep(), (Simulator::Now() - q->startTime).GetTimeStep(),
+            standalone_fct);
+
+    // for debugging
+    NS_LOG_DEBUG("%u %u %u %u %lu %lu %lu %lu\n" %
+                 (Settings::ip_to_node_id(q->sip), Settings::ip_to_node_id(q->dip), q->sport,
+                  q->dport, q->m_size, q->startTime.GetTimeStep(),
+                  (Simulator::Now() - q->startTime).GetTimeStep(), standalone_fct));
+    Settings::cnt_finished_flows++;
+    fflush(fout);
+}
+
+
+int main(){
+// 1. 创建节点
+n.Create(2);
+
+// 2. 配置RDMA链路
+QbbHelper qbb;
+qbb.SetDeviceAttribute("DataRate", StringValue("100Gbps"));
+qbb.SetChannelAttribute("Delay", StringValue("100ns"));
+NetDeviceContainer devices = qbb.Install(n.Get(0), n.Get(1));
+
+// 3. 安装协议栈
+InternetStackHelper internet;
+internet.Install(n);
+
+// 4. 分配IP地址
+Ipv4AddressHelper ipv4;
+ipv4.SetBase("10.1.1.0", "255.255.255.0");
+Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
+
+
+std::vector<Ptr<RdmaHw>> hwList;
+// 5. 配置RDMA驱动
+for (uint32_t i = 0; i < 2; i++) {
+            // create RdmaHw
+            Ptr<RdmaHw> rdmaHw = CreateObject<RdmaHw>();
+            rdmaHw->SetAttribute("ClampTargetRate", BooleanValue(clamp_target_rate));
+            rdmaHw->SetAttribute("AlphaResumInterval", DoubleValue(alpha_resume_interval));
+            rdmaHw->SetAttribute("RPTimer", DoubleValue(rp_timer));
+            rdmaHw->SetAttribute("FastRecoveryTimes", UintegerValue(fast_recovery_times));
+            rdmaHw->SetAttribute("EwmaGain", DoubleValue(ewma_gain));
+            rdmaHw->SetAttribute("RateAI", DataRateValue(DataRate(rate_ai)));
+            rdmaHw->SetAttribute("RateHAI", DataRateValue(DataRate(rate_hai)));
+            rdmaHw->SetAttribute("L2BackToZero", BooleanValue(l2_back_to_zero));
+            rdmaHw->SetAttribute("L2ChunkSize", UintegerValue(l2_chunk_size));
+            rdmaHw->SetAttribute("L2AckInterval", UintegerValue(l2_ack_interval));
+            rdmaHw->SetAttribute("CcMode", UintegerValue(cc_mode));
+            rdmaHw->SetAttribute("RateDecreaseInterval", DoubleValue(rate_decrease_interval));
+            rdmaHw->SetAttribute("MinRate", DataRateValue(DataRate(min_rate)));
+            rdmaHw->SetAttribute("Mtu", UintegerValue(packet_payload_size));
+            rdmaHw->SetAttribute("MiThresh", UintegerValue(mi_thresh));
+            rdmaHw->SetAttribute("VarWin", BooleanValue(var_win));
+            rdmaHw->SetAttribute("FastReact", BooleanValue(fast_react));
+            rdmaHw->SetAttribute("MultiRate", BooleanValue(multi_rate));
+            rdmaHw->SetAttribute("SampleFeedback", BooleanValue(sample_feedback));
+            rdmaHw->SetAttribute("TargetUtil", DoubleValue(u_target));
+            rdmaHw->SetAttribute("RateBound", BooleanValue(rate_bound));
+            rdmaHw->SetAttribute("DctcpRateAI", DataRateValue(DataRate(dctcp_rate_ai)));
+            rdmaHw->SetAttribute("IrnEnable", BooleanValue(enable_irn));
+            // topo2bdpMap (e.g., longest BDP 25000: 8us * 25Gbps)
+            rdmaHw->SetAttribute("IrnRtoHigh", TimeValue(MicroSeconds(320)));  // 1930
+            rdmaHw->SetAttribute("IrnRtoLow", TimeValue(MicroSeconds(100)));   // 454
+            rdmaHw->SetAttribute("IrnBdp", UintegerValue(irn_bdp_lookup));
+            // Monitoring CNP Marking frequency of DCQCN
+            if (cc_mode == 1) {
+                Simulator::Schedule(NanoSeconds(cnp_mon_start), &cnp_freq_monitoring, cnp_output,
+                                    rdmaHw);
+            }
+
+            // create and install RdmaDriver
+            Ptr<RdmaDriver> rdma = CreateObject<RdmaDriver>();
+            Ptr<Node> node = n.Get(i);
+            rdma->SetNode(node);
+            rdma->SetRdmaHw(rdmaHw);
+
+            node->AggregateObject(rdma);
+            rdma->Init();
+            rdma->TraceConnectWithoutContext("QpComplete",
+                                             MakeBoundCallback(qp_finish, fct_output));
+            hwList.push_back(rdmaHw);
+        }
+// ns3::LogComponentEnable("GENERIC_SIMULATION", ns3::LOG_LEVEL_INFO);
+// ns3::LogComponentEnable("RdmaHw", ns3::LOG_LEVEL_ALL);
+
+// NS_LOG_INFO("Simulation start");
+
+Ipv4Address addr0 = interfaces.GetAddress(0);  // 节点0的IP
+Ipv4Address addr1 = interfaces.GetAddress(1);  // 节点1的IP
+std::cout << "addr0 as int: " << addr0.Get() << std::endl;
+std::cout << "addr1 as int: " << addr1.Get() << std::endl;
+
+
+
+uint64_t size = 4;    // 消息大小
+uint16_t pg = 0;         // Priority group
+Ipv4Address sip = addr0;  // 发送端 IP
+Ipv4Address dip = addr1;  // 接收端 IP
+uint16_t sport = 1234;
+
+uint16_t dport = 4321;
+uint32_t win = 100;
+uint64_t baseRtt = 100;  // ns
+int32_t flowId = 0;
+
+Ptr<RdmaHw> targetHw = hwList[0];
+
+// 为节点0设置：到节点1的路由走接口0
+targetHw->AddTableEntry(addr1, 0);
+targetHw->AddQueuePair(size, pg, sip, dip, sport, dport, win, baseRtt, flowId);
+
+Ptr<RdmaHw> targetHw1 = hwList[1];
+targetHw1->AddTableEntry(addr0, 0);
+
+// 7. 运行仿真
+Simulator::Stop(Seconds(100));  
+Simulator::Run();             
+Simulator::Destroy();                                                
+}

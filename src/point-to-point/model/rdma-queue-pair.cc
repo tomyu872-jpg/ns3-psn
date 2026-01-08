@@ -189,6 +189,7 @@ RdmaRxQueuePair::RdmaRxQueuePair() {
     m_nackTimer = Time(0);
     m_milestone_rx = 0;
     m_lastNACK = 0;
+    m_empty_sack_entry_count = 0;
 }
 
 uint32_t RdmaRxQueuePair::GetHash(void) {
@@ -218,7 +219,16 @@ RdmaQueuePairGroup::RdmaQueuePairGroup(void) { memset(m_qp_finished, 0, sizeof(m
 
 uint32_t RdmaQueuePairGroup::GetN(void) { return m_qps.size(); }
 
-Ptr<RdmaQueuePair> RdmaQueuePairGroup::Get(uint32_t idx) { return m_qps[idx]; }
+Ptr<RdmaQueuePair> 
+RdmaQueuePairGroup::Get(uint32_t idx) 
+{
+    if (idx >= m_qps.size()) {
+        NS_LOG_ERROR("RdmaQueuePairGroup::Get() invalid index " 
+                     << idx << ", valid range: [0, " << m_qps.size() - 1 << "]");
+        return nullptr;
+    }
+    return m_qps[idx];
+}
 
 Ptr<RdmaQueuePair> RdmaQueuePairGroup::operator[](uint32_t idx) { return m_qps[idx]; }
 
@@ -243,7 +253,113 @@ std::ostream& operator<<(std::ostream& os, const IrnSackManager& im) {
     }
     return os;
 }
-
+// uint32_t IrnSackManager::handle_seq_packet(uint32_t seq,uint32_t epsn,uint32_t size){//顺序包
+//     int pos;
+//     for(; epsn < seq + size; epsn++) {
+//     bitmap[head]= 0;
+//     head = (head + 1) % BITMAP_SIZE;
+//     }
+//     std::cout<<"head:"<<head<<std::endl;
+//     std::cout<<"epsn:"<<epsn<<std::endl;  
+//     if(bitmap[head]==1){
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         pos = (head + i) % BITMAP_SIZE;  // 环形遍历
+//         if (bitmap[pos] == 1) {
+//             bitmap[pos] =0;
+//             }
+//         else{
+//             break;
+//         }}
+//     epsn = epsn +(pos-head+BITMAP_SIZE)%BITMAP_SIZE;//pos已经加了1
+//     head = pos;
+//     }
+//     std::cout<<"pos:"<<pos<<std::endl;
+//     std::cout<<"head:"<<head<<std::endl;
+//     std::cout<<"epsn:"<<epsn<<std::endl;    
+//     // 图形化打印
+//     std::cout << "bitmap位图显示:" << std::endl;
+//     std::cout << "索引: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << i << " ";
+//     }
+//     std::cout << std::endl;
+    
+//     std::cout << "数值: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << static_cast<int>(bitmap[i]) << " ";
+//     }
+//     std::cout << std::endl;
+//     return epsn;
+// }
+// int IrnSackManager::handle_unseq_packet(uint32_t seq,uint32_t epsn,uint32_t size){//提前的包
+//     // std::cout<<"test"<<std::endl;
+//     int pos = (seq - epsn + head)%BITMAP_SIZE;
+//     std::cout<<"head:"<<head<<std::endl;
+//     std::cout<<"epsn:"<<epsn<<std::endl;    
+//     std::cout<<"pos:"<<pos<<std::endl;
+//     if(bitmap[pos]==1 ){
+//         // && Simulator::Now() < q->m_nackTimer//提前且重复的包 时间没有到nack时间
+//         // 图形化打印
+//     std::cout << "bitmap位图显示:" << std::endl;
+//     std::cout << "索引: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << i << " ";
+//     }
+//     std::cout << std::endl;
+    
+//     std::cout << "数值: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << static_cast<int>(bitmap[i]) << " ";
+//     }
+//     std::cout << std::endl; 
+//             return 4;//不重复发送nack
+//         }
+//     // q->m_nackTimer = Simulator::Now() + MicroSeconds(m_nack_interval)
+//         else{
+//             bitmap[pos]=1;
+//             // cnp = true;
+//             // 图形化打印
+//     std::cout << "bitmap位图显示:" << std::endl;
+//     std::cout << "索引: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << i << " ";
+//     }
+//     std::cout << std::endl;
+    
+//     std::cout << "数值: ";
+//     for (int i = 0; i < BITMAP_SIZE; i++) {
+//         std::cout << std::setw(2) << static_cast<int>(bitmap[i]) << " ";
+//     }
+//     std::cout << std::endl;
+//             return 1;}
+// }
+// void IrnSackManager::new_bitmap(uint32_t blockId){
+//     bitmap[blockId]=1;
+// }
+// size_t IrnSackManager::updateBitmap(uint32_t seq){
+//     int pos = (seq - epsn + head)%BITMAP_SIZE;
+//     if(bitmap[pos]==0){
+//         bitmap[pos]=1;
+//         if(pos==front){  //当前数据包是顺序包
+//             front = (front + 1)%BITMAP_SIZE;
+//             return 1;
+//         }else if(pos==head){  //当前数据包是epsn，位图需更新
+//             for(int i=pos;i!=front;i = (i + 1) % BITMAP_SIZE){
+//                 if(bitmap[i]==0){
+//                     head = i;
+//                     break;
+//                 }
+//             }
+//             head = i;
+//             if(head==front){
+//                 return 2;  //位图为空，回发确认信号退出损失恢复。
+//             }
+//             return 1;
+//         }
+//     }else{
+//         return 0;  //表示该包无效
+//     }
+// }
 // put blocks
 void IrnSackManager::sack(uint32_t seq, uint32_t sz) {
     if (!sz) return;

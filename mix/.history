@@ -1,1 +1,65 @@
 date,id,ccmode,lbmode,cwh_tx_expiry_time,cwh_extra_reply_deadline,cwh_path_pause_time,cwh_extra_voq_flush_time,cwh_default_voq_waiting_time,pfc,irn,has_win,var_win,topo,bw,cdf,load,time
+09/08/25,606099979,1,0,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/606099979/config.txt' > /root/ns-3.19/mix/output/606099979/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/606099979/config.txt'
+
+09/08/25,368561114,1,6,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/368561114/config.txt' > /root/ns-3.19/mix/output/368561114/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/368561114/config.txt'
+
+09/08/25,96276803,1,3,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/96276803/config.txt' > /root/ns-3.19/mix/output/96276803/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/96276803/config.txt'
+
+09/08/25,31011508,1,9,300,4,16,16,200,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/31011508/config.txt' > /root/ns-3.19/mix/output/31011508/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/31011508/config.txt'
+
+09/08/25,269317368,1,0,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/269317368/config.txt' > /root/ns-3.19/mix/output/269317368/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/269317368/config.txt'
+
+09/08/25,215765764,1,6,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/215765764/config.txt' > /root/ns-3.19/mix/output/215765764/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/215765764/config.txt'
+
+09/08/25,666888950,1,3,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/666888950/config.txt' > /root/ns-3.19/mix/output/666888950/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/666888950/config.txt'
+
+09/08/25,910508791,1,9,300,4,16,16,200,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/910508791/config.txt' > /root/ns-3.19/mix/output/910508791/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/910508791/config.txt'
+
+09/08/25,256687013,1,0,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/256687013/config.txt' > /root/ns-3.19/mix/output/256687013/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/256687013/config.txt'
+
+09/08/25,860721842,1,6,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/860721842/config.txt' > /root/ns-3.19/mix/output/860721842/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/860721842/config.txt'
+
+09/08/25,459776604,1,3,1000,4,16,64,400,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/459776604/config.txt' > /root/ns-3.19/mix/output/459776604/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/459776604/config.txt'
+
+09/08/25,509427730,1,9,300,4,16,16,200,1,0,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/509427730/config.txt' > /root/ns-3.19/mix/output/509427730/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/509427730/config.txt'
+
+09/08/25,744900352,1,0,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/744900352/config.txt' > /root/ns-3.19/mix/output/744900352/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/744900352/config.txt'
+
+09/08/25,94378584,1,6,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/94378584/config.txt' > /root/ns-3.19/mix/output/94378584/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/94378584/config.txt'
+
+09/08/25,916184665,1,3,1000,4,16,64,400,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/916184665/config.txt' > /root/ns-3.19/mix/output/916184665/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/916184665/config.txt'
+
+09/08/25,656430073,1,9,300,4,16,16,200,0,1,0,0,leaf_spine_128_100G_OS2,100,AliStorage2019,50,0.1
+./waf --run 'scratch/network-load-balance /root/ns-3.19/mix/output/656430073/config.txt' > /root/ns-3.19/mix/output/656430073/config.log 2>&1
+./waf --run 'scratch/network-load-balance' --command-template='gdb --args %s /root/ns-3.19/mix/output/656430073/config.txt'
+

@@ -1,5 +1,5 @@
-#ifndef RDMA_QUEUE_PAIR_H
-#define RDMA_QUEUE_PAIR_H
+#ifndef RDMA_QUEUE_PAIR_H_SR
+#define RDMA_QUEUE_PAIR_H_SR
 
 #include <ns3/custom-header.h>
 #include <ns3/data-rate.h>
@@ -12,6 +12,7 @@
 
 #include <climits> /* for CHAR_BIT */
 #include <vector>
+#include <atomic>
 
 #define BITMASK(b) (1 << ((b) % CHAR_BIT))
 #define BITSLOT(b) ((b) / CHAR_BIT)
@@ -21,6 +22,7 @@
 #define BITNSLOTS(nb) ((nb + CHAR_BIT - 1) / CHAR_BIT)
 
 #define ESTIMATED_MAX_FLOW_PER_HOST 9120
+#define BITMAP_SIZE 256
 
 namespace ns3 {
 
@@ -41,6 +43,11 @@ class IrnSackManager {
 
     IrnSackManager();
     IrnSackManager(int flow_id);
+    // void IrnSackManager::new_bitmap(uint32_t blockId);
+    bool includePkg(uint32_t seq);  //
+    // size_t updateBitmap(uint32_t seq);
+    uint32_t handle_seq_packet(uint32_t seq, uint32_t epsn,uint32_t size);
+    int handle_unseq_packet(uint32_t seq,uint32_t epsn,uint32_t size);
     void sack(uint32_t seq, uint32_t size);  // put blocks
     size_t discardUpTo(uint32_t seq);        // return number of blocks removed
     bool IsEmpty();
@@ -53,6 +60,9 @@ class IrnSackManager {
 
 class RdmaQueuePair : public Object {
    public:
+    bool resend_mode = false;
+    uint32_t last_ack_seq = 0; 
+    uint64_t saved_snd_nxt;
     Time startTime;
     Ipv4Address sip, dip;
     uint16_t sport, dport;
@@ -165,7 +175,12 @@ class RdmaQueuePair : public Object {
         // IRN do not consider SACKed segments for simplicity
         return irn.m_max_seq - irn.m_highest_ack;
     }
+    void SetRecoverySeq() {
+    this->snd_nxt = this->irn.m_recovery_seq;
+    }
 
+
+    //根据 IRN 启用状态和 in-flight 数据量，动态选择重传超时（RTO）
     Time GetRto(uint32_t mtu) {
         if (irn.m_enabled) {
             if (GetIrnBytesInFlight() > 3 * mtu) {
@@ -188,6 +203,9 @@ class RdmaQueuePair : public Object {
 
 class RdmaRxQueuePair : public Object {  // Rx side queue pair
    public:
+    std::array<uint8_t, BITMAP_SIZE> bitmap{};  //位图，逻辑上是一个环形
+    std::atomic<uint32_t> head{0}; //位图头所在位置，对应epsn,新的psn通过epsn来计算偏移，结合head可以准确找到位图中的位置
+   uint32_t m_empty_sack_entry_count;
     struct ECNAccount {
         uint16_t qIndex;
         uint8_t ecnbits;
@@ -203,6 +221,7 @@ class RdmaRxQueuePair : public Object {  // Rx side queue pair
     uint32_t ReceiverNextExpectedSeq;
     Time m_nackTimer;
     int32_t m_milestone_rx;
+    int32_t m_pkgNum_rx;  //记录数据包到达总数
     uint32_t m_lastNACK;
     EventId QcnTimerEvent;  // if destroy this rxQp, remember to cancel this timer
     IrnSackManager m_irn_sack_;
@@ -240,4 +259,4 @@ class RdmaQueuePairGroup : public Object {
 
 }  // namespace ns3
 
-#endif /* RDMA_QUEUE_PAIR_H */
+#endif /* RDMA_QUEUE_PAIR_H_SR */

@@ -140,7 +140,10 @@ void RdmaClient::StartApplication (void)
   // get RDMA driver and add up queue pair
   Ptr<Node> node = GetNode();
   Ptr<RdmaDriver> rdma = node->GetObject<RdmaDriver>();
+  // std::cout<<"开始创建冗余包"<<std::endl;//简化为增加数据长度
+  // m_size=m_size+200;
   rdma->AddQueuePair(m_size, m_pg, m_sip, m_dip, m_sport, m_dport, m_win, m_baseRtt, m_flow_id);
+  std::cout<<"win:"<<m_win<<std::endl;
 }
 
 void RdmaClient::StopApplication ()

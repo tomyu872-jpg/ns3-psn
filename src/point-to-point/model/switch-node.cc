@@ -58,8 +58,129 @@ SwitchNode::SwitchNode() {
 /**
  * @brief Load Balancing
  */
-uint32_t SwitchNode::DoLbFlowECMP(Ptr<const Packet> p, const CustomHeader &ch,
+// uint32_t SwitchNode::DoLbFlowECMP(Ptr<const Packet> p, const CustomHeader &ch,   //单路径
+//                                   const std::vector<int> &nexthops) {
+//     uint32_t base_sip = 184549377;
+//     // pick one next hop based on hash
+//     union {
+//         uint8_t u8[4 + 4 + 2 + 2];
+//         uint32_t u32[3];
+//     } buf;
+//     buf.u32[0] = ch.sip;
+//     buf.u32[1] = ch.dip;
+//     if (ch.l3Prot == 0x6)
+//         buf.u32[2] = ch.tcp.sport | ((uint32_t)ch.tcp.dport << 16);
+//     else if (ch.l3Prot == 0x11)  // XXX RDMA traffic on UDP
+//         buf.u32[2] = ch.udp.sport | ((uint32_t)ch.udp.dport << 16);
+//     else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD){  // ACK or NACK
+//         buf.u32[2] = ch.ack.sport | ((uint32_t)ch.ack.dport << 16);
+//         uint32_t hashVal = EcmpHash(buf.u8, 12, m_ecmpSeed);
+//         uint32_t idx = hashVal % nexthops.size();
+//         return nexthops[idx];
+//     }
+//     else {
+//         std::cout << "[ERROR] Sw(" << m_id << ")," << PARSE_FIVE_TUPLE(ch)
+//                   << "Cannot support other protoocls than TCP/UDP (l3Prot:" << ch.l3Prot << ")"
+//                   << std::endl;
+//         assert(false && "Cannot support other protoocls than TCP/UDP");
+//     }    
+//     uint32_t hashVal = EcmpHash(buf.u8, 12, m_ecmpSeed);
+//     if(nexthops.size()!=1){
+//         uint32_t hash_val1 = (ch.sip-base_sip)/4096;//指定路径
+//         uint32_t hash_val2 = (ch.sip-base_sip)/256;//指定路径
+//         // std::cout<<"sip:"<<ch.sip<<std::endl;
+//         uint32_t idx = (hash_val1+hash_val2+mp_count) % (nexthops.size()-mp_count);
+//         //  uint32_t idx = hashVal % nexthops.size();
+//         return nexthops[idx];
+//     }
+//     return nexthops[0];
+// }
+
+
+//  uint32_t SwitchNode::DoLbFlowECMP(Ptr<const Packet> p, const CustomHeader &ch,//多路径
+//                                   const std::vector<int> &nexthops) {
+
+//         // 基于序列号(seq)的路由选择
+//     uint32_t seq = 0;
+//     uint32_t base_sip = 184549377;
+    
+//     // 提取序列号，根据协议类型不同字段
+//     if (ch.l3Prot == 0x6) {  // TCP
+//         seq = ch.tcp.seq;
+//     } else if (ch.l3Prot == 0x11) {  // UDP
+//         seq = ch.udp.seq;
+//     } else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD) {  // ACK or NACK
+//         seq = ch.ack.seq;
+//     // pick one next hop based on hash
+//     union {
+//         uint8_t u8[4 + 4 + 2 + 2];
+//         uint32_t u32[3];
+//     } buf;
+//     buf.u32[0] = ch.sip;
+//     buf.u32[1] = ch.dip;
+//     if (ch.l3Prot == 0x6)
+//         buf.u32[2] = ch.tcp.sport | ((uint32_t)ch.tcp.dport << 16);
+//     else if (ch.l3Prot == 0x11)  // XXX RDMA traffic on UDP
+//         buf.u32[2] = ch.udp.sport | ((uint32_t)ch.udp.dport << 16);
+//     else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD)  // ACK or NACK
+//         buf.u32[2] = ch.ack.sport | ((uint32_t)ch.ack.dport << 16);
+//     else {
+//         std::cout << "[ERROR] Sw(" << m_id << ")," << PARSE_FIVE_TUPLE(ch)
+//                   << "Cannot support other protoocls than TCP/UDP (l3Prot:" << ch.l3Prot << ")"
+//                   << std::endl;
+//         assert(false && "Cannot support other protoocls than TCP/UDP");
+//     }
+
+//     uint32_t hashVal = EcmpHash(buf.u8, 12, m_ecmpSeed);
+//     uint32_t idx = hashVal % nexthops.size();
+    
+//     return nexthops[0];
+//     } 
+    
+//     else {
+//         std::cout << "[ERROR] Sw(" << m_id << ")," << PARSE_FIVE_TUPLE(ch)
+//                   << "Cannot support other protocols than TCP/UDP (l3Prot:" << ch.l3Prot << ")"
+//                   << std::endl;
+//         assert(false && "Cannot support other protocols than TCP/UDP");
+//     }
+
+//     // 基于序列号选择路由
+//     if(nexthops.size()!=1){
+//         uint32_t off = (seq / PACKET_SIZE) % mp_count;
+//         uint32_t hash_val1 = (ch.sip-base_sip)/4096;//指定路径，第几组
+//         uint32_t hash_val2 = (ch.sip-base_sip)/256;//指定路径，一组中的第几个
+//         // std::cout<<"sip:"<<ch.sip<<std::endl;
+//         uint32_t idx = (hash_val1+hash_val2) % (nexthops.size()-mp_count);
+//         //  uint32_t idx = hashVal % nexthops.size();
+//         if(off==0){
+//             return nexthops[0];
+//         }else if(off==1){
+//             return nexthops[1];
+//         }else if(off==2){
+//             return nexthops[2];
+//         }else{
+//             return nexthops[idx];
+//         }
+
+//     }
+//     // idx = (idx+hash_val) % nexthops.size(); // 保证不越界
+//     return nexthops[0];
+// }
+
+uint32_t SwitchNode::DoLbFlowECMP(Ptr<const Packet> p, const CustomHeader &ch,//多路径
                                   const std::vector<int> &nexthops) {
+
+        // 基于序列号(seq)的路由选择
+    uint32_t seq = 0;
+    uint32_t base_sip = 184549377;
+    
+    // 提取序列号，根据协议类型不同字段
+    if (ch.l3Prot == 0x6) {  // TCP
+        seq = ch.tcp.seq;
+    } else if (ch.l3Prot == 0x11) {  // UDP
+        seq = ch.udp.seq;
+    } else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD) {  // ACK or NACK
+        seq = ch.ack.seq;
     // pick one next hop based on hash
     union {
         uint8_t u8[4 + 4 + 2 + 2];
@@ -82,7 +203,53 @@ uint32_t SwitchNode::DoLbFlowECMP(Ptr<const Packet> p, const CustomHeader &ch,
 
     uint32_t hashVal = EcmpHash(buf.u8, 12, m_ecmpSeed);
     uint32_t idx = hashVal % nexthops.size();
-    return nexthops[idx];
+    
+    return nexthops[0];
+    } 
+    
+    else {
+        std::cout << "[ERROR] Sw(" << m_id << ")," << PARSE_FIVE_TUPLE(ch)
+                  << "Cannot support other protocols than TCP/UDP (l3Prot:" << ch.l3Prot << ")"
+                  << std::endl;
+        assert(false && "Cannot support other protocols than TCP/UDP");
+    }
+
+    // 基于序列号选择路由
+    uint32_t hash_val = (ch.sip-base_sip)/4096;
+
+    if(nexthops.size()!=1){
+        uint32_t off = (seq / PACKET_SIZE) % mp_count;
+        uint32_t hash_val1 = (ch.sip-base_sip)/4096;//指定路径，第几组
+        uint32_t hash_val2 = (ch.sip-base_sip)/256;//指定路径，一组中的第几个
+        // std::cout<<"sip:"<<ch.sip<<std::endl;
+        uint32_t idx = (hash_val1+hash_val2+mp_count) % (nexthops.size()-mp_count);
+        //  uint32_t idx = hashVal % nexthops.size();
+        if(off==0){
+            return nexthops[(idx+1)% nexthops.size()];
+        }else if(off==1){
+            return nexthops[(idx+2)% nexthops.size()];
+        }else if(off==2){
+            return nexthops[(idx+3)% nexthops.size()];
+        }else{
+            if(counter%4==0){
+                counter++;
+                if(counter%3==0){
+                    return nexthops[(idx+1)% nexthops.size()];
+                }else if(counter%3==0){
+                    return nexthops[(idx+2)% nexthops.size()];
+                }else if(counter%3==0){
+                    return nexthops[(idx+3)% nexthops.size()];
+                }
+            }else{
+                counter++;
+                return nexthops[idx];
+            }
+            
+        }
+
+    }
+    // idx = (idx+hash_val) % nexthops.size(); // 保证不越界
+    return nexthops[0];
 }
 
 /*-----------------CONGA-----------------*/

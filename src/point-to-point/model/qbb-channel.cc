@@ -96,13 +96,18 @@ QbbChannel::TransmitStart (
 
   NS_ASSERT (m_link[0].m_state != INITIALIZING);
   NS_ASSERT (m_link[1].m_state != INITIALIZING);
-
   uint32_t wire = src == m_link[0].m_src ? 0 : 1;
-
+  // std::cout<<"接受节点:"<<m_link[wire].m_dst->GetNode ()->GetId ()<<std::endl;
+  Time extraDelay = NanoSeconds(200);
+  // if(p->GetUid ()==1){
+    
+  //   Simulator::ScheduleWithContext (m_link[wire].m_dst->GetNode ()->GetId (),
+  //                                 txTime + m_delay + extraDelay, &QbbNetDevice::Receive,
+  //                                 m_link[wire].m_dst, p);
+  // }else{
   Simulator::ScheduleWithContext (m_link[wire].m_dst->GetNode ()->GetId (),
                                   txTime + m_delay, &QbbNetDevice::Receive,
                                   m_link[wire].m_dst, p);
-
   // Call the tx anim callback on the net device
   m_txrxQbb (p, src, m_link[wire].m_dst, txTime, txTime + m_delay);
   return true;

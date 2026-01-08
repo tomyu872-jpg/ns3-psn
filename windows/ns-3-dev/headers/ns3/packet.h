@@ -104,7 +104,7 @@ private:
    */
   Item Next (void);
 private:
-  friend class Packet;
+  friend class Packet; 
   ByteTagIterator (ByteTagList::Iterator i);
   ByteTagList::Iterator m_current;
 };

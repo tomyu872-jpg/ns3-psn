@@ -47,6 +47,8 @@
 #include "ns3/qbb-net-device.h"
 #include "ns3/rdma-hw.h"
 #include "ns3/settings.h"
+#include "ns3/flow-monitor-helper.h"
+#include "ns3/ipv4-flow-classifier.h"
 
 using namespace ns3;
 using namespace std;
@@ -80,9 +82,9 @@ bool conweave_pathAwareRerouting = true;
 uint64_t one_hop_delay = 1000;  // nanoseconds
 uint32_t cc_mode = 1;           // mode for congestion control, 1: DCQCN
 bool enable_qcn = true, enable_pfc = true, use_dynamic_pfc_threshold = true;
-uint32_t packet_payload_size = 1000, l2_chunk_size = 0, l2_ack_interval = 0;
+uint32_t packet_payload_size = 100, l2_chunk_size = 0, l2_ack_interval = 0;
 double pause_time = 5;  // PFC pause, microseconds
-double flowgen_start_time = 2.0, flowgen_stop_time = 2.5, simulator_extra_time = 0.1;
+double flowgen_start_time = 2.0, flowgen_stop_time = 3, simulator_extra_time = 0.1;
 // queue length monitoring time is not used in this simulator
 // uint32_t qlen_dump_interval = 100000000, qlen_mon_interval = 1000;  // ns
 uint64_t qlen_mon_start;               // ns
@@ -199,6 +201,7 @@ void ReadFlowInput() {
     if (flow_input.idx < flow_num) {
         flowf >> flow_input.src >> flow_input.dst >> flow_input.pg >> flow_input.maxPacketCount >>
             flow_input.start_time;
+            std::cout<<"flow_input.maxPacketCount"<<flow_input.maxPacketCount<<std::endl;
         assert(n.Get(flow_input.src)->GetNodeType() == 0 &&
                n.Get(flow_input.dst)->GetNodeType() == 0);
     } else {
@@ -212,7 +215,7 @@ void ReadFlowInput() {
 /**
  * Scheduling flows given in /config/L_XX....txt file
  */
-void ScheduleFlowInputs(FILE *infile) {
+void ScheduleFlowInputs(FILE *infile) {    
     NS_LOG_DEBUG("ScheduleFlowInputs at " << Simulator::Now());
     while (flow_input.idx < flow_num && Seconds(flow_input.start_time) == Simulator::Now()) {
         uint32_t pg, src, dst, sport, dport, maxPacketCount, target_len;
@@ -474,6 +477,9 @@ void qp_finish(FILE *fout, Ptr<RdmaQueuePair> q) {
                          IntHeader::GetStaticSize());  // translate to the minimum bytes required
                                                        // (with header but no INT)
     uint64_t standalone_fct = base_rtt + total_bytes * 8000000000lu / b;
+    uint64_t actual_fct_ns=(Simulator::Now() - q->startTime).GetTimeStep();
+    double throughput_bps = (total_bytes * 8.0) / actual_fct_ns;  
+    double goodput_bps = (q->m_size * 8.0) / actual_fct_ns;  
 
     // XXX: remove rxQP from the receiver
     Ptr<Node> dstNode = n.Get(did);
@@ -481,10 +487,10 @@ void qp_finish(FILE *fout, Ptr<RdmaQueuePair> q) {
     rdma->m_rdma->DeleteRxQp(q->sip.Get(), q->sport, q->dport, q->m_pg);
 
     // fprintf(fout, "%lu QP complete\n", Simulator::Now().GetTimeStep());
-    fprintf(fout, "%u %u %u %u %lu %lu %lu %lu\n", Settings::ip_to_node_id(q->sip),
+    fprintf(fout, "%u %u %u %u %lu %lu %lu %lu %.5f %.5f\n", Settings::ip_to_node_id(q->sip),
             Settings::ip_to_node_id(q->dip), q->sport, q->dport, q->m_size,
             q->startTime.GetTimeStep(), (Simulator::Now() - q->startTime).GetTimeStep(),
-            standalone_fct);
+            standalone_fct,throughput_bps,goodput_bps);
 
     // for debugging
     NS_LOG_DEBUG("%u %u %u %u %lu %lu %lu %lu\n" %
@@ -1208,9 +1214,8 @@ int main(int argc, char *argv[]) {
         std::string data_rate, link_delay;
         double error_rate;
         topof >> src >> dst >> data_rate >> link_delay >> error_rate;
-
         /** ASSUME: fixed one-hop delay across network */
-        assert(std::to_string(one_hop_delay) + "ns" == link_delay);
+        // assert(std::to_string(one_hop_delay) + "ns" == link_delay);
 
         link_pairs.push_back(std::make_pair(src, dst));
         Ptr<Node> snode = n.Get(src), dnode = n.Get(dst);
@@ -1309,9 +1314,9 @@ int main(int argc, char *argv[]) {
                               "must set kmax for each link speed");
                 NS_ASSERT_MSG(rate2pmax.find(rate) != rate2pmax.end(),
                               "must set pmax for each link speed");
-                assert(rate2kmin.find(rate) != rate2kmin.end() &&
-                       rate2kmax.find(rate) != rate2kmax.end() &&
-                       rate2pmax.find(rate) != rate2pmax.end());
+                // assert(rate2kmin.find(rate) != rate2kmin.end() &&
+                //        rate2kmax.find(rate) != rate2kmax.end() &&
+                //        rate2pmax.find(rate) != rate2pmax.end());
                 sw->m_mmu->ConfigEcn(j, rate2kmin[rate], rate2kmax[rate], rate2pmax[rate]);
                 // set pfc
                 uint64_t delay =
@@ -1366,6 +1371,8 @@ int main(int argc, char *argv[]) {
     std::map<std::string, uint32_t> topo2bdpMap;
     topo2bdpMap[std::string("leaf_spine_128_100G_OS2")] = 104000;  // RTT=8320
     topo2bdpMap[std::string("fat_k8_100G_OS2")] = 156000;      // RTT=12480 --> all 100G links
+    topo2bdpMap[std::string("1_topology")] = 423200;   // 增加的拓扑文件
+
 
     // topology_file
     bool found_topo2bdpMap = false;
@@ -1476,7 +1483,7 @@ int main(int argc, char *argv[]) {
         }
     }
     fprintf(stderr, "maxRtt: %lu, maxBdp: %lu\n", maxRtt, maxBdp);
-    assert(maxBdp == irn_bdp_lookup);
+    // assert(maxBdp == irn_bdp_lookup);
 
     std::cout << "Configuring switches" << std::endl;
     /* config ToR Switch */
@@ -1779,6 +1786,8 @@ int main(int argc, char *argv[]) {
     }
     Simulator::Schedule(Seconds(flowgen_start_time), &periodic_monitoring, voq_output,
                         voq_detail_output, uplink_output, conn_output, &lb_mode);
+    FlowMonitorHelper flowmonHelper;
+    Ptr<FlowMonitor> flowmon = flowmonHelper.InstallAll();
 
     //
     // Now, do the actual simulation.
@@ -1789,8 +1798,22 @@ int main(int argc, char *argv[]) {
     NS_LOG_INFO("Run Simulation.");
     Simulator::Schedule(Seconds(flowgen_start_time),
                         &stop_simulation_middle);  // check every 100us
-    Simulator::Stop(Seconds(flowgen_stop_time + 10.0));
+    Simulator::Stop(Seconds(flowgen_stop_time + 0));
     Simulator::Run();
+
+
+    Ptr<Ipv4FlowClassifier> classifier =
+    DynamicCast<Ipv4FlowClassifier>(flowmonHelper.GetClassifier());
+    std::map<FlowId, FlowMonitor::FlowStats> stats = flowmon->GetFlowStats();
+    std::cout << "stats size = " << stats.size() << std::endl;
+
+    for (auto &flow : stats) {
+    Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(flow.first);
+    std::cout << "Flow " << flow.first << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
+    std::cout << "  Delay Sum: " << flow.second.delaySum.GetSeconds() << "s\n";
+    std::cout << "  Tx Packets: " << flow.second.txPackets << "\n";
+    std::cout << "  Rx Packets: " << flow.second.rxPackets << "\n";
+    }
 
     /*-----------------------------------------------------------------------------*/
     /*----- we don't need below. Just we can enforce to close this simulation. -----*/

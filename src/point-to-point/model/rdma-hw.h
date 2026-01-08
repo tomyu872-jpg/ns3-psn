@@ -11,7 +11,8 @@
 
 #include "qbb-net-device.h"
 #include "rdma-queue-pair.h"
-
+const int block_size=200; 
+const int k=2; 
 namespace ns3 {
 
 struct RdmaInterfaceMgr {
@@ -24,14 +25,42 @@ struct RdmaInterfaceMgr {
 
 class RdmaHw : public Object {
    public:
+
     static TypeId GetTypeId(void);
     RdmaHw();
+    uint64_t last_record_time=0; //记录时间
+    std::set<uint32_t> sentSeqs;  // 存储已发送的seq
+    uint32_t nack_times=0;
+    uint32_t last_seq=0;
+    bool nacktransmit_mode=false;
+    uint32_t m_empty_sack_threshold = 5; 
+    struct BlockStatus {
+    uint32_t blockId;
+    uint32_t totalPackets;            // 当前 Block 总包数
+    uint32_t receivedCount = 0;       // 已收到包数量
+    std::vector<bool> received;       // 每个 symbol 是否收到
+    bool decoded = false;             // 是否已触发解码
+
+    BlockStatus(uint32_t id, uint32_t total)
+        : blockId(id), totalPackets(total), received(total, false) {}
+    };
+    std::unordered_map<uint32_t, BlockStatus> blockTable;
+
+    //位图
+    //新增位图相关数据结构
+    uint32_t epsn;  //期望的数据包
+    uint32_t front;  //最新包的位置
+
+    bool isSeqSent(uint32_t seq) const {
+        return sentSeqs.find(seq) != sentSeqs.end();
+    }
+
 
     Ptr<Node> m_node;
     DataRate m_minRate;  //< Min sending rate
     uint32_t m_mtu;
     uint32_t m_cc_mode;
-    double m_nack_interval;
+    double m_nack_interval=10;
     uint32_t m_chunk;
     uint32_t m_ack_interval;
     bool m_backto0;
@@ -47,6 +76,7 @@ class RdmaHw : public Object {
     typedef Callback<void, Ptr<RdmaQueuePair>> QpCompleteCallback;
     QpCompleteCallback m_qpCompleteCallback;
 
+    void DoSomethingLater();
     void SetNode(Ptr<Node> node);
     void Setup(QpCompleteCallback cb);  // setup shared data and callbacks with the QbbNetDevice
 
@@ -86,7 +116,7 @@ class RdmaHw : public Object {
                           // packets. Only NIC can call this function. And do not call this upon PFC
 
     void CheckandSendQCN(Ptr<RdmaRxQueuePair> q);
-    int ReceiverCheckSeq(uint32_t seq, Ptr<RdmaRxQueuePair> q, uint32_t size, bool &cnp);
+    int ReceiverCheckSeq(uint32_t &seq, Ptr<RdmaRxQueuePair> q, uint32_t size, bool &cnp);
     void AddHeader(Ptr<Packet> p, uint16_t protocolNumber);
     static uint16_t EtherToPpp(uint16_t protocol);
 

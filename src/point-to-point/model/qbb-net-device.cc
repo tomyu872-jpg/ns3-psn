@@ -115,8 +115,12 @@ int RdmaEgressQueue::GetNextQindex(bool paused[]) {
         bool cond1 = !paused[qp->m_pg];
         bool cond_window_allowed =
             (!qp->IsWinBound() && (!qp->irn.m_enabled || qp->CanIrnTransmit(m_mtu)));
-        bool cond2 = (qp->GetBytesLeft() > 0 && cond_window_allowed);
-
+        // std::cout<<"cond_window_allowed："<<cond_window_allowed<<std::endl;
+        // std::cout<<"qp->IsWinBound():"<<qp->IsWinBound()<<std::endl;
+        // std::cout<<"qp->irn.m_enabled:"<<qp->irn.m_enabled<<std::endl;
+        // std::cout<<"qp->CanIrnTransmit(m_mtu):"<<qp->CanIrnTransmit(m_mtu)<<std::endl;
+        // std::cout<<"qp->GetBytesLeft():"<<qp->GetBytesLeft()<<std::endl;
+        bool cond2 = (qp->GetBytesLeft() > 0 && cond_window_allowed);   
         if (!cond2 && !m_qpGrp->IsQpFinished((qIndex + m_rrlast) % fcount)) {
             if (qp->IsFinishedConst()) {
                 m_qpGrp->SetQpFinished((qIndex + m_rrlast) % fcount);
@@ -163,7 +167,13 @@ uint32_t RdmaEgressQueue::GetNBytes(uint32_t qIndex) {
 
 uint32_t RdmaEgressQueue::GetFlowCount(void) { return m_qpGrp->GetN(); }
 
-Ptr<RdmaQueuePair> RdmaEgressQueue::GetQp(uint32_t i) { return m_qpGrp->Get(i); }
+Ptr<RdmaQueuePair> RdmaEgressQueue::GetQp(uint32_t i) { 
+    if (m_qpGrp == nullptr) {
+        NS_LOG_WARN("RdmaEgressQueue::GetQp called but m_qpGrp is null!");
+        return nullptr;
+    }
+    return m_qpGrp->Get(i);
+}
 
 void RdmaEgressQueue::RecoverQueue(uint32_t i) {
     NS_ASSERT_MSG(i < m_qpGrp->GetN(), "RdmaEgressQueue::RecoverQueue: qIndex >= m_qpGrp->GetN()");
@@ -242,15 +252,48 @@ void QbbNetDevice::DoDispose() {
     PointToPointNetDevice::DoDispose();
 }
 
-void QbbNetDevice::TransmitComplete(void) {
+// void QbbNetDevice::TransmitComplete(void) {
+//     NS_LOG_FUNCTION(this);
+//     NS_ASSERT_MSG(m_txMachineState == BUSY, "Must be BUSY if transmitting");
+//     m_txMachineState = READY;
+//     NS_ASSERT_MSG(m_currentPkt != 0, "QbbNetDevice::TransmitComplete(): m_currentPkt zero");
+//     m_phyTxEndTrace(m_currentPkt);
+//     m_currentPkt = 0;
+// if (m_rdmaEQ != nullptr) {//在收到nack之后只发送一个丢的包
+//     for (uint32_t i = 0; i < 2; i++) {
+//         Ptr<RdmaQueuePair> qp = m_rdmaEQ->GetQp(i);
+//             if (qp != nullptr) {
+//                 if (qp->irn.m_recovery) {
+//                     std::cout<<"中止发送"<<std::endl;
+//                     qp->irn.m_recovery=false;
+//                     qp->snd_nxt=qp->irn.m_recovery_seq;
+//                     return;
+//                 // qp->SetRecoverySeq();
+//                 }
+//             }
+//         }
+//     }
+//     DequeueAndTransmit();
+// }
+
+void QbbNetDevice::TransmitComplete(Ptr<RdmaQueuePair> qp) {
     NS_LOG_FUNCTION(this);
     NS_ASSERT_MSG(m_txMachineState == BUSY, "Must be BUSY if transmitting");
     m_txMachineState = READY;
     NS_ASSERT_MSG(m_currentPkt != 0, "QbbNetDevice::TransmitComplete(): m_currentPkt zero");
     m_phyTxEndTrace(m_currentPkt);
     m_currentPkt = 0;
+    if (qp != nullptr) {
+        if (qp->resend_mode) {
+            qp->irn.m_recovery=false;
+            qp->snd_nxt=qp->irn.m_recovery_seq;
+            qp->resend_mode=false;
+            std::cout<<"丢包重新发送"<<std::endl;
+        }
+    }
     DequeueAndTransmit();
 }
+
 
 void QbbNetDevice::DequeueAndTransmit(void) {
     NS_LOG_FUNCTION(this);
@@ -261,21 +304,22 @@ void QbbNetDevice::DequeueAndTransmit(void) {
         int qIndex = m_rdmaEQ->GetNextQindex(m_paused);
         if (qIndex != -1024) {
             if (qIndex == -1) {  // high prio
-                p = m_rdmaEQ->DequeueQindex(qIndex);
-                m_traceDequeue(p, 0);
-                TransmitStart(p);
+                p = m_rdmaEQ->DequeueQindex(qIndex);//执行GetNxtPacket函数确定发送的包序号
+                Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
+                TransmitStart(p, lastQp);
                 return;
             }
             // a qp dequeue a packet
             Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
             p = m_rdmaEQ->DequeueQindex(qIndex);
-
             // transmit
             m_traceQpDequeue(p, lastQp);
-            TransmitStart(p);
+            // std::cout <<"数据包发送, 时间: " << Simulator::Now().GetNanoSeconds() << std::endl;
+            TransmitStart(p, lastQp);
 
             // update for the next avail time
             m_rdmaPktSent(lastQp, p, m_tInterframeGap);
+            // std::cout <<"发送完成，时间：" << Simulator::Now().GetNanoSeconds()<< std::endl;            
         } else {  // no packet to send
             NS_LOG_INFO("PAUSE prohibits send at node " << m_node->GetId());
             Time t = Simulator::GetMaximumSimulationTime();
@@ -313,7 +357,8 @@ void QbbNetDevice::DequeueAndTransmit(void) {
                 p->RemovePacketTag(t);
             }
             m_traceDequeue(p, qIndex);
-            TransmitStart(p);
+            Ptr<RdmaQueuePair> lastQp = nullptr; 
+            TransmitStart(p, lastQp);
             return;
         } else {  // No queue can deliver any packet
             NS_LOG_INFO("PAUSE prohibits send at node " << m_node->GetId());
@@ -347,6 +392,7 @@ void QbbNetDevice::Resume(unsigned qIndex) {
 }
 
 void QbbNetDevice::Receive(Ptr<Packet> packet) {
+    //std::cout << m_node->GetId()<<"节点调用QbbNetDevice::Receive开始接受数据包" << std::endl;
     NS_LOG_FUNCTION(this << packet);
     if (!m_linkUp) {
         m_traceDrop(packet, 0);
@@ -363,6 +409,15 @@ void QbbNetDevice::Receive(Ptr<Packet> packet) {
     }
 
     m_macRxTrace(packet);
+    //新增解析出blockId和symbolId
+    // Cm256Header cmHeader;
+    // if (packet->PeekHeader(cmHeader)) {
+    // uint32_t blockId = cmHeader.GetBlockId();
+    // uint32_t symbolId = cmHeader.GetSymbolId();
+    // NS_LOG_DEBUG("Received Cm256Header: blockId=" << blockId << ", symbolId=" << symbolId);
+    // } else {
+    //     NS_LOG_WARN("Packet missing Cm256Header");
+    // }
     CustomHeader ch(CustomHeader::L2_Header | CustomHeader::L3_Header | CustomHeader::L4_Header);
     ch.getInt = 1;  // parse INT header
     packet->PeekHeader(ch);
@@ -436,9 +491,10 @@ bool QbbNetDevice::Attach(Ptr<QbbChannel> ch) {
     return true;
 }
 
-bool QbbNetDevice::TransmitStart(Ptr<Packet> p) {
+bool QbbNetDevice::TransmitStart(Ptr<Packet> p, Ptr<RdmaQueuePair> lastQp) {
     NS_LOG_FUNCTION(this << p);
     NS_LOG_LOGIC("UID is " << p->GetUid() << ")");
+    // std::cout<<"QbbNetDevice::TransmitStart中uid为:"<<p->GetUid()<<std::endl;
     //
     // This function is called to start the process of transmitting a packet.
     // We need to tell the channel that we've started wiggling the wire and
@@ -451,7 +507,10 @@ bool QbbNetDevice::TransmitStart(Ptr<Packet> p) {
     Time txTime = Seconds(m_bps.CalculateTxTime(p->GetSize()));
     Time txCompleteTime = txTime + m_tInterframeGap;
     NS_LOG_LOGIC("Schedule TransmitCompleteEvent in " << txCompleteTime.GetSeconds() << "sec");
-    Simulator::Schedule(txCompleteTime, &QbbNetDevice::TransmitComplete, this);
+    Simulator::Schedule(
+        txCompleteTime,
+        MakeEvent(&QbbNetDevice::TransmitComplete, this, lastQp)
+    );
 
     bool result = m_channel->TransmitStart(p, this, txTime);
     if (result == false) {
@@ -466,10 +525,23 @@ bool QbbNetDevice::IsQbb(void) const { return true; }
 
 void QbbNetDevice::NewQp(Ptr<RdmaQueuePair> qp) {
     qp->m_nextAvail = Simulator::Now();
+    // std::cout << "当前仿真时间: " 
+    //       << Simulator::Now ().GetNanoSeconds () << " 纳秒" 
+    //       << std::endl;
     DequeueAndTransmit();
 }
 void QbbNetDevice::ReassignedQp(Ptr<RdmaQueuePair> qp) { DequeueAndTransmit(); }
-void QbbNetDevice::TriggerTransmit(void) { DequeueAndTransmit(); }
+void QbbNetDevice::TriggerTransmit(void) {
+    DequeueAndTransmit(); 
+    }
+
+// void QbbNetDevice::resend(void){
+//     Ptr<Packet> p;
+//     Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(0);
+//     std::cout<<"resend中的qp->snd_nxt:"<<lastQp->snd_nxt<<std::endl;
+//     p = m_rdmaEQ->DequeueQindex(0);
+//     TransmitStart(p);
+// }
 
 void QbbNetDevice::SetQueue(Ptr<BEgressQueue> q) {
     NS_LOG_FUNCTION(this << q);
