@@ -19,7 +19,7 @@ wget https://www.nsnam.org/releases/ns-allinone-3.19.tar.bz2
 tar -xvf ns-allinone-3.19.tar.bz2
 cd ns-allinone-3.19
 rm -rf ns-3.19
-git clone https://github.com/conweave-project/conweave-ns3.git ns-3.19
+git clone https://github.com/tomyu872-jpg/ns3-psn.git ns-3.19
 ```
 
 #### 1. Create a Dockerfile
